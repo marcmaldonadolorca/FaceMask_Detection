@@ -1,0 +1,75 @@
+def hello_world(request):
+    import cv2
+    import numpy as np
+    import base64
+    from google.cloud import vision
+    from google.cloud import automl_v1beta1
+    import os
+    """Responds to any HTTP request.
+    Args:
+        request (flask.Request): HTTP request object.
+    Returns:
+        The response text or any set of values that can be turned into a
+        Response object using
+        `make_response <http://flask.pocoo.org/docs/1.0/api/#flask.Flask.make_response>`.
+
+    """
+
+    request_json = request.get_json()
+
+
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "key.json"
+
+    im_bytes = base64.b64decode(request_json['img'])
+    im_arr = np.frombuffer(im_bytes, dtype=np.uint8)  # im_arr is one-dim Numpy array
+    img = cv2.imdecode(im_arr, flags=cv2.IMREAD_COLOR)
+
+    #cv2.imwrite("prueba.jpg", img)
+
+
+
+    client = vision.ImageAnnotatorClient()
+
+    image = vision.Image(content=im_bytes)
+
+    response = client.face_detection(image=image)
+    faces = response.face_annotations
+
+    for face in faces:
+        vertices = (['({},{})'.format(vertex.x, vertex.y)
+                    for vertex in face.bounding_poly.vertices])
+
+        print('face bounds: {}'.format(','.join(vertices)))
+        
+
+    if response.error.message:
+        raise Exception(
+            '{}\nFor more info on error messages, check: '
+            'https://cloud.google.com/apis/design/errors'.format(
+                response.error.message))
+        
+
+    frame = img[eval(vertices[0])[1]:eval(vertices[2])[1], eval(vertices[0])[0]:eval(vertices[2])[0]]
+
+
+
+    success, encoded_image = cv2.imencode('.jpg', frame)
+    content2 = encoded_image.tobytes()
+
+
+
+    project_id = "sm-project-310409"
+    model_id = "ICN3088631516515794944"
+
+    prediction_client = automl_v1beta1.PredictionServiceClient()
+
+    name = 'projects/{}/locations/us-central1/models/{}'.format(project_id, model_id)
+    payload = {'image': {'image_bytes': content2}}
+    params = {}
+    request = prediction_client.predict(name=name, payload=payload, params=params)
+
+    request2 = request.payload
+
+    print (request2[0].display_name, str(round(request2[0].classification.score * 100,4))+ '%')
+
+    return request2[0].display_name + ": " + str(round(request2[0].classification.score * 100,4))+ '%'
